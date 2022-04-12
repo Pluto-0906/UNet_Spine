@@ -1,0 +1,14 @@
+*.pyc
+data/
+__pycache__/
+checkpoints/
+*.pth
+*.jpg
+venv/
+.idea/
+wandb/
+lab.py
+predict_result/
+important_pth/
+.vscode/
+archive/
