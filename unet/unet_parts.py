@@ -78,7 +78,7 @@ class DoubleConv(nn.Module):
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels, shortcut=True, extra=False):
+    def __init__(self, in_channels, out_channels, shortcut=True, extra=True):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2), DoubleConv(in_channels, out_channels, shortcut=shortcut)

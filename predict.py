@@ -51,7 +51,7 @@ def get_args():
     parser.add_argument(
         "--model",
         "-m",
-        default="./important_pth/INTERRUPTED.pth",
+        default="./checkpoints/checkpoint_epoch23.pth",
         metavar="FILE",
         help="Specify the file in which the model is stored",
     )
@@ -112,7 +112,7 @@ def mask_to_image(mask: np.ndarray):
     else:  # mask.ndim == 3:
         return Image.fromarray(
             # (np.argmax(mask, axis=0) * 255 / mask.shape[0]).astype(np.uint8)
-            (np.argmax(mask, axis=0) * 255).astype(np.uint8)
+            (np.argmax(mask, axis=0) * 255).astype(np.uint8)  # auto un-one-hot
         )
 
 

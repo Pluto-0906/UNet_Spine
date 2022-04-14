@@ -34,6 +34,7 @@ def train_net(
     save_onnx: bool = False,
     img_scale: float = 0.5,
     amp: bool = False,
+    multi_class: bool = False,  # use multi-class in two-class tasks
 ):
     # 1. Create dataset
     dataset = BasicDataset(dir_img, dir_mask, img_scale)
@@ -87,10 +88,10 @@ def train_net(
     """
     optimizer = optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=1e-8)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=25, T_mult=1, eta_min=0, last_epoch=-1
+        optimizer, T_0=50, T_mult=1, eta_min=0, last_epoch=-1
     )  # remain to be optimized TODO
     grad_scaler = torch.cuda.amp.grad_scaler.GradScaler(enabled=amp)
-    criterion = SymmetricUnifiedFocalLoss()  # TODO
+    criterion = dice_loss()  # TODO
     global_step = 0
 
     # 5. Begin training
@@ -111,13 +112,20 @@ def train_net(
                 )
 
                 images = images.to(device=device, dtype=torch.float32)
-                true_masks = true_masks.to(device=device, dtype=torch.float32)
-                # true_masks.shape(b, c, w, h)
-                true_masks = true_masks.unsqueeze(dim=1)
+                true_masks = true_masks.to(device=device)
+                true_masks = (
+                    F.one_hot(true_masks).permute(0, 3, 1, 2)
+                    if multi_class
+                    else true_masks.unsqueeze(dim=1)
+                )
 
                 with torch.cuda.amp.autocast_mode.autocast(enabled=amp):
                     masks_pred = net(images)
-                    masks_pred = torch.sigmoid(masks_pred)
+                    masks_pred = (
+                        F.softmax(masks_pred, dim=1)
+                        if multi_class
+                        else torch.sigmoid(masks_pred)
+                    )
                     loss = criterion(masks_pred, true_masks)  # TODO
 
                 optimizer.zero_grad()
@@ -151,7 +159,9 @@ def train_net(
                                 value.grad.data.cpu()
                             )
 
-                        val_score, val_pre, val_rec = evaluate(net, val_loader, device)
+                        val_score, val_pre, val_rec = evaluate(
+                            net, val_loader, device, multi_class=multi_class
+                        )
 
                         logging.info(
                             "Validation Dice score: {:.4f} \n Validation Precision: {:4f} \n Validation Recall: {:.4f}".format(
@@ -226,7 +236,7 @@ def get_args():
         "-l",
         metavar="LR",
         type=float,
-        default=1e-5,
+        default=3e-4,
         help="Learning rate",
         dest="lr",
     )
@@ -257,7 +267,13 @@ def get_args():
     parser.add_argument(
         "--parallel", action="store_true", default=False, help="Use data parallel"
     )
-
+    parser.add_argument(
+        "--multi-class",
+        dest="multi_class",
+        action="store_true",
+        default=False,
+        help="Use multi-class in two-class tasks",
+    )
     return parser.parse_args()
 
 
@@ -269,7 +285,9 @@ if __name__ == "__main__":
     logging.info(f"Using device {device}")
 
     # Change here to adapt to your data
-    net = UNet(n_channels=1, n_classes=1, bilinear=args.bilinear)
+    net = UNet(
+        n_channels=1, n_classes=2 if args.multi_class else 1, bilinear=args.bilinear
+    )
     # net = unet_carvana()
 
     logging.info(
@@ -297,6 +315,7 @@ if __name__ == "__main__":
             img_scale=args.scale,
             val_percent=args.val / 100,
             amp=args.amp,
+            multi_class=args.multi_class,
         )
     except KeyboardInterrupt:
         torch.save(net.state_dict(), "./important_pth/INTERRUPTED.pth")

@@ -2,10 +2,10 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from utils.dice_score import multiclass_dice_coeff, dice_coeff, compute_pre_rec
+from utils.dice_score import compute_pre_rec, dice_coeff, multiclass_dice_coeff
 
 
-def evaluate(net, dataloader, device):
+def evaluate(net, dataloader, device, multi_class=False):
     net.eval()
     num_val_batches = len(dataloader)
     dice_score = 0
@@ -20,22 +20,30 @@ def evaluate(net, dataloader, device):
         unit="batch",
         leave=False,
     ):
-        image, mask_true = batch["image"], batch["mask"]
+        image, true_masks = batch["image"], batch["mask"]
         # move images and labels to correct device and type
         image = image.to(device=device, dtype=torch.float32)
-        mask_true = mask_true.to(device=device, dtype=torch.float32)
-        mask_true = mask_true.unsqueeze(dim=1)
+        true_masks = true_masks.to(device=device)
+        true_masks = (
+            F.one_hot(true_masks).permute(0, 3, 1, 2)
+            if multi_class
+            else true_masks.unsqueeze(dim=1)
+        )
 
         with torch.no_grad():
             # predict the mask
-            mask_pred = net(image)
-            mask_pred = torch.sigmoid(mask_pred)
+            masks_pred = net(image)
+            masks_pred = masks_pred = (
+                F.softmax(masks_pred, dim=1)
+                if multi_class
+                else torch.sigmoid(masks_pred)
+            )
 
             # compute dice score
-            dice_score += multiclass_dice_coeff(mask_pred, mask_true).item()
+            dice_score += multiclass_dice_coeff(masks_pred, true_masks).item()
 
             # compute the Precision and the Recall
-            pre, rec = compute_pre_rec(mask_pred, mask_true)
+            pre, rec = compute_pre_rec(masks_pred, true_masks, multi_class=multi_class)
             precision += pre
             recall += rec
 

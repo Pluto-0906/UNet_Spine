@@ -20,7 +20,9 @@ def multiclass_dice_coeff(input: Tensor, target: Tensor, epsilon=1e-6):
     assert input.size() == target.size()
     dice = torch.tensor(0, dtype=torch.float32).to(input.device)
     for channel in range(input.shape[1]):
-        dice += dice_coeff(input[:, channel, ...], target[:, channel, ...], epsilon)
+        dice += dice_coeff(
+            input[:, channel, ...], target[:, channel, ...].float(), epsilon
+        )
     return dice / input.shape[1]
 
 
@@ -52,15 +54,24 @@ def compute_rec(input: Tensor, target: Tensor):
     return result
 
 
-def compute_pre_rec(input: Tensor, target: Tensor):
+def compute_pre_rec(input: Tensor, target: Tensor, multi_class: bool = False):
     assert input.size() == target.size()
-    return compute_pre(input, target), compute_rec(input, target)
+    if multi_class:
+        return (
+            compute_pre(input[:, 1, ...], target[:, 1, ...].float()),
+            compute_rec(input[:, 1, ...], target[:, 1, ...].float()),
+        )  # only channel 1
+    else:
+        return (
+            compute_pre(input, target.float()),
+            compute_rec(input, target.float()),
+        )
 
 
 def recall_fucking_loss(input: Tensor, target: Tensor, epsilon=1e-6, weight=10):
     assert input.size() == target.size()
 
-    inter = torch.dot(input.reshape(-1), target.reshape(-1))
+    inter = torch.dot(input.reshape(-1), target.reshape(-1).float())
     sets_sum = torch.sum(target)
     if sets_sum.item() == 0:
         return torch.tensor(1, dtype=torch.float32).to(input.device)
