@@ -2,15 +2,15 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from utils.dice_score import compute_pre_rec, dice_coeff, multiclass_dice_coeff
+from utils.dice_score import compute_pre_rec_miou, dice_coeff, multiclass_dice_coeff
 
 
 def evaluate(net, dataloader, device, multi_class=False):
     net.eval()
     num_val_batches = len(dataloader)
-    dice_score = 0
     precision = 0
     recall = 0
+    miou = 0
 
     # iterate over the validation set
     for batch in tqdm(
@@ -39,22 +39,22 @@ def evaluate(net, dataloader, device, multi_class=False):
                 else torch.sigmoid(masks_pred)
             )
 
-            # compute dice score
-            dice_score += multiclass_dice_coeff(masks_pred, true_masks).item()
-
             # compute the Precision and the Recall
-            pre, rec = compute_pre_rec(masks_pred, true_masks, multi_class=multi_class)
+            pre, rec, iou = compute_pre_rec_miou(
+                masks_pred, true_masks, multi_class=multi_class
+            )
             precision += pre
             recall += rec
+            miou += iou
 
     net.train()
 
     # Fixes a potential division by zero error
     if num_val_batches == 0:
-        return dice_score, precision, recall
+        return precision, recall, miou
     else:
         return (
-            dice_score / num_val_batches,
             precision / num_val_batches,
             recall / num_val_batches,
+            miou / num_val_batches,
         )

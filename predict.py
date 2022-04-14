@@ -51,7 +51,7 @@ def get_args():
     parser.add_argument(
         "--model",
         "-m",
-        default="./checkpoints/checkpoint_epoch23.pth",
+        default="./checkpoints/checkpoint_epoch0.pth",
         metavar="FILE",
         help="Specify the file in which the model is stored",
     )

@@ -88,7 +88,7 @@ def train_net(
     """
     optimizer = optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=1e-8)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=50, T_mult=1, eta_min=0, last_epoch=-1
+        optimizer, T_0=250, T_mult=2, eta_min=0, last_epoch=-1
     )  # remain to be optimized TODO
     grad_scaler = torch.cuda.amp.grad_scaler.GradScaler(enabled=amp)
     criterion = dice_loss()  # TODO
@@ -159,22 +159,22 @@ def train_net(
                                 value.grad.data.cpu()
                             )
 
-                        val_score, val_pre, val_rec = evaluate(
+                        val_pre, val_rec, val_miou = evaluate(
                             net, val_loader, device, multi_class=multi_class
                         )
 
                         logging.info(
-                            "Validation Dice score: {:.4f} \n Validation Precision: {:4f} \n Validation Recall: {:.4f}".format(
-                                val_score, val_pre, val_rec
+                            "\n Validation Precision: {:4f} \n Validation Recall: {:.4f} \n Validation mIoU: {:.4f}".format(
+                                val_pre, val_rec, val_miou
                             )
                         )
                         if experiment is not None:
                             experiment.log(
                                 {
                                     "learning rate": optimizer.param_groups[0]["lr"],
-                                    "validation Dice": val_score,
                                     "validation Precision": val_pre,
                                     "validation Recall": val_rec,
+                                    "validation mIoU": val_miou,
                                     "images": wandb.Image(images[0].cpu()),
                                     "masks": {
                                         "true": wandb.Image(
@@ -318,6 +318,6 @@ if __name__ == "__main__":
             multi_class=args.multi_class,
         )
     except KeyboardInterrupt:
-        torch.save(net.state_dict(), "./important_pth/INTERRUPTED.pth")
+        torch.save(net.state_dict(), "./INTERRUPTED.pth")
         logging.info("Saved interrupt")
         sys.exit(0)

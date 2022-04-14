@@ -54,17 +54,28 @@ def compute_rec(input: Tensor, target: Tensor):
     return result
 
 
-def compute_pre_rec(input: Tensor, target: Tensor, multi_class: bool = False):
+def compute_miou(input: Tensor, target: Tensor):
+    inter = torch.dot(input.reshape(-1), target.reshape(-1))
+    total = torch.sum(input) + torch.sum(target) - inter
+    if total.item() == 0:
+        return 0
+    result = inter.item() / total.item()
+    return result
+
+
+def compute_pre_rec_miou(input: Tensor, target: Tensor, multi_class: bool = False):
     assert input.size() == target.size()
     if multi_class:
         return (
             compute_pre(input[:, 1, ...], target[:, 1, ...].float()),
             compute_rec(input[:, 1, ...], target[:, 1, ...].float()),
+            compute_miou(input[:, 1, ...], target[:, 1, ...].float()),
         )  # only channel 1
     else:
         return (
             compute_pre(input, target.float()),
             compute_rec(input, target.float()),
+            compute_miou(input, target.float()),
         )
 
 
