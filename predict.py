@@ -51,7 +51,7 @@ def get_args():
     parser.add_argument(
         "--model",
         "-m",
-        default="./important_pth/dice_bce_0.62_0.52_0.84.pth",
+        default="./important_pth/INTERRUPTED.pth",
         metavar="FILE",
         help="Specify the file in which the model is stored",
     )
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     in_files = args.input
     out_files = get_output_filenames(args)
 
-    net = UNet(n_channels=1, n_classes=2, bilinear=args.bilinear)
+    net = UNet(n_channels=1, n_classes=1, bilinear=args.bilinear)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Loading model {args.model}")

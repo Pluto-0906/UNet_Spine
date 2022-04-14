@@ -58,41 +58,50 @@ class RandomFlip_LR:
     def __init__(self, prob=0.5):
         self.prob = prob
 
-    def _flip(self, img, prob):
-        if prob[0] <= self.prob:
-            img = img.flip(2)
+    def _flip(self, img, prob, is_mask=False):
+        if prob <= self.prob:
+            if is_mask:
+                img = img.flip([1])
+            else:
+                img = img.flip([2])
         return img
 
     def __call__(self, img, mask):
-        prob = (random.uniform(0, 1), random.uniform(0, 1))
-        return self._flip(img, prob), self._flip(mask, prob)
+        prob = random.uniform(0, 1)
+        return self._flip(img, prob), self._flip(mask, prob, is_mask=True)
 
 
 class RandomFlip_UD:
     def __init__(self, prob=0.5):
         self.prob = prob
 
-    def _flip(self, img, prob):
-        if prob[1] <= self.prob:
-            img = img.flip(1)
+    def _flip(self, img, prob, is_mask=False):
+        if prob <= self.prob:
+            if is_mask:
+                img = img.flip([0])
+            else:
+                img = img.flip([1])
         return img
 
     def __call__(self, img, mask):
-        prob = (random.uniform(0, 1), random.uniform(0, 1))
-        return self._flip(img, prob), self._flip(mask, prob)
+        prob = random.uniform(0, 1)
+        return self._flip(img, prob), self._flip(mask, prob, is_mask=True)
 
 
 class RandomRotate:
     def __init__(self, max_cnt=3):
         self.max_cnt = max_cnt
 
-    def _rotate(self, img, cnt):
-        img = torch.rot90(img, cnt, [1, 2])
+    def _rotate(self, img, cnt, is_mask=False):
+        if is_mask:
+            img = torch.rot90(img, cnt, [0, 1])
+        else:
+            img = torch.rot90(img, cnt, [1, 2])
         return img
 
     def __call__(self, img, mask):
         cnt = random.randint(0, self.max_cnt)
-        return self._rotate(img, cnt), self._rotate(mask, cnt)
+        return self._rotate(img, cnt), self._rotate(mask, cnt, is_mask=True)
 
 
 class ToTensor:

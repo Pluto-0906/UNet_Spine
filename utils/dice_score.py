@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from torch import Tensor
 
 
@@ -6,38 +7,31 @@ def dice_coeff(input: Tensor, target: Tensor, epsilon=1e-6):
     # Average of Dice coefficient for all batches, or for a single mask
     assert input.size() == target.size()
 
-    if input.dim() == 2:
-        inter = torch.dot(input.reshape(-1), target.reshape(-1))
-        sets_sum = torch.sum(input) + torch.sum(target)
-        if sets_sum.item() == 0:
-            sets_sum = 2 * inter
-
-        return (2 * inter + epsilon) / (sets_sum + epsilon)
+    inter = torch.dot(input.reshape(-1), target.reshape(-1))
+    sets_sum = torch.sum(input) + torch.sum(target)
+    if sets_sum.item() == 0:
+        return torch.tensor(1, dtype=torch.float32).to(input.device)
     else:
-        # compute and average metric for each batch element
-        # At this time the dim == 3
-        dice = 0
-        for i in range(input.shape[0]):
-            dice += dice_coeff(input[i, ...], target[i, ...])
-
-        return dice / input.shape[0]
+        return (2 * inter + epsilon) / (sets_sum + epsilon)
 
 
 def multiclass_dice_coeff(input: Tensor, target: Tensor, epsilon=1e-6):
     # Average of Dice coefficient for all classes
     assert input.size() == target.size()
-    dice = 0
+    dice = torch.tensor(0, dtype=torch.float32).to(input.device)
     for channel in range(input.shape[1]):
         dice += dice_coeff(input[:, channel, ...], target[:, channel, ...], epsilon)
-
     return dice / input.shape[1]
 
 
-def dice_loss(input: Tensor, target: Tensor, multiclass: bool = False):
-    # Dice loss (objective to minimize) between 0 and 1
-    assert input.size() == target.size()
-    fn = multiclass_dice_coeff if multiclass else dice_coeff
-    return 1 - fn(input, target)
+class dice_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: Tensor, target: Tensor):
+        # Dice loss (objective to minimize) between 0 and 1
+        assert input.size() == target.size()
+        return 1 - multiclass_dice_coeff(input, target)
 
 
 def compute_pre(input: Tensor, target: Tensor):
@@ -53,22 +47,14 @@ def compute_rec(input: Tensor, target: Tensor):
     inter = torch.dot(input.reshape(-1), target.reshape(-1))
     total = torch.sum(target)
     if total.item() == 0:
-        return 0
+        return 1
     result = inter.item() / total.item()
     return result
 
 
 def compute_pre_rec(input: Tensor, target: Tensor):
     assert input.size() == target.size()
-
-    pre = 0
-    rec = 0
-    batch_size = input.shape[0]
-    for i in range(batch_size):
-        pre += compute_pre(input[i, 0, ...], target[i, 0, ...])
-        rec += compute_rec(input[i, 0, ...], target[i, 0, ...])
-
-    return pre / batch_size, rec / batch_size
+    return compute_pre(input, target), compute_rec(input, target)
 
 
 def recall_fucking_loss(input: Tensor, target: Tensor, epsilon=1e-6, weight=10):
@@ -76,5 +62,7 @@ def recall_fucking_loss(input: Tensor, target: Tensor, epsilon=1e-6, weight=10):
 
     inter = torch.dot(input.reshape(-1), target.reshape(-1))
     sets_sum = torch.sum(target)
-
-    return (1 - (inter + epsilon) / (sets_sum + epsilon)) * weight
+    if sets_sum.item() == 0:
+        return torch.tensor(1, dtype=torch.float32).to(input.device)
+    else:
+        return (1 - (inter + epsilon) / (sets_sum + epsilon)) * weight

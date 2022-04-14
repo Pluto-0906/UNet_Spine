@@ -30,14 +30,22 @@ class ShortCut(nn.Module):
 class ExtraPath(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super().__init__()
+        assert out_channels % in_channels == 0
         self.depthwise = nn.Sequential(
             nn.Conv2d(
-                in_channels, out_channels, kernel_size=3, stride=stride, bias=False,
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                stride=stride,
+                padding=1,
+                bias=False,
+                groups=in_channels,
             ),
             nn.BatchNorm2d(out_channels),
         )
 
     def forward(self, x):
+        x.where(x > 0.5, torch.zeros_like(x))  # high-pass
         return self.depthwise(x)
 
 
@@ -70,14 +78,21 @@ class DoubleConv(nn.Module):
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels, shortcut=True):
+    def __init__(self, in_channels, out_channels, shortcut=True, extra=False):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2), DoubleConv(in_channels, out_channels, shortcut=shortcut)
         )
+        self.drop_path = DropPath(p=0.5)
+        self.extra = ExtraPath(in_channels, out_channels, stride=2) if extra else None
 
     def forward(self, x):
-        return self.maxpool_conv(x)
+        if self.extra is not None:
+            a = self.maxpool_conv(x)
+            b = self.drop_path(self.extra(x))
+            return a + b
+        else:
+            return self.maxpool_conv(x)
 
 
 class Up(nn.Module):

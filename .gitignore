@@ -12,3 +12,5 @@ predict_result/
 important_pth/
 .vscode/
 archive/
+preprocessing/
+unet_old/

@@ -6,17 +6,17 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from torch import optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
-from utils.data_loading import BasicDataset
-from utils.dice_score import dice_loss, recall_fucking_loss
-from utils.loss_tool import focal_loss
+import wandb
 from evaluate import evaluate
-from unet import UNet
 from hubconf import unet_carvana
+from unet import UNet
+from utils.data_loading import BasicDataset
+from utils.dice_score import dice_loss
+from utils.unified_focal_loss import SymmetricUnifiedFocalLoss
 
 dir_img = "./data/imgs/"
 dir_mask = "./data/masks/"
@@ -31,6 +31,7 @@ def train_net(
     learning_rate: float = 1e-5,
     val_percent: float = 0.1,
     save_checkpoint: bool = True,
+    save_onnx: bool = False,
     img_scale: float = 0.5,
     amp: bool = False,
 ):
@@ -79,14 +80,17 @@ def train_net(
     )
 
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
-    # optimizer = optim.SGD(net.parameters, momentum=0.9, lr=learning_rate, weight_decay=1e-8)
+    """
+    optimizer = optim.SGD(
+        net.parameters(), momentum=0.9, lr=learning_rate, weight_decay=1e-8
+    )
+    """
     optimizer = optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=1e-8)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer, T_0=25, T_mult=1, eta_min=0, last_epoch=-1
     )  # remain to be optimized TODO
     grad_scaler = torch.cuda.amp.grad_scaler.GradScaler(enabled=amp)
-    # criterion = nn.CrossEntropyLoss()
-    criterion = dice_loss  # TODO
+    criterion = SymmetricUnifiedFocalLoss()  # TODO
     global_step = 0
 
     # 5. Begin training
@@ -107,19 +111,16 @@ def train_net(
                 )
 
                 images = images.to(device=device, dtype=torch.float32)
-                true_masks = true_masks.to(device=device, dtype=torch.long)
+                true_masks = true_masks.to(device=device, dtype=torch.float32)
                 # true_masks.shape(b, c, w, h)
-                true_masks = (
-                    F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float()
-                )
+                true_masks = true_masks.unsqueeze(dim=1)
 
                 with torch.cuda.amp.autocast_mode.autocast(enabled=amp):
                     masks_pred = net(images)
-                    loss = criterion(
-                        F.softmax(masks_pred, dim=1).float(), true_masks
-                    ) + focal_loss(masks_pred, true_masks[:, 1, ...])
+                    masks_pred = torch.sigmoid(masks_pred)
+                    loss = criterion(masks_pred, true_masks)  # TODO
 
-                optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad()
                 grad_scaler.scale(loss).backward()  # type: ignore
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
@@ -135,7 +136,9 @@ def train_net(
                 pbar.set_postfix(**{"loss (batch)": loss.item()})
 
                 # Evaluation round
-                division_step = n_train // (2 * batch_size)
+                division_step = n_train // (
+                    2 * batch_size
+                )  # the frequency of evaluation
                 if division_step > 0:
                     if global_step % division_step == 0:
                         histograms = {}
@@ -148,7 +151,7 @@ def train_net(
                                 value.grad.data.cpu()
                             )
 
-                        val_score, val_pre, val_rec = evaluate(net, val_loader, device)  # type: ignore
+                        val_score, val_pre, val_rec = evaluate(net, val_loader, device)
 
                         logging.info(
                             "Validation Dice score: {:.4f} \n Validation Precision: {:4f} \n Validation Recall: {:.4f}".format(
@@ -187,6 +190,19 @@ def train_net(
                 dir_checkpoint + "checkpoint_epoch{}.pth".format(epoch + 1),
             )
             logging.info(f"Checkpoint {epoch + 1} saved!")
+
+        if save_onnx:  # for following conversion
+            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
+            dummy_input = next(iter(train_loader))["image"].to(
+                device=device, dtype=torch.float32
+            )
+            torch.onnx.export(
+                net,
+                dummy_input,
+                dir_checkpoint + "ONNX_epoch{}.onnx".format(epoch + 1),
+                opset_version=11,
+            )
+            logging.info(f"ONNX model {epoch + 1} saved!")
 
 
 def get_args():
@@ -238,6 +254,9 @@ def get_args():
     parser.add_argument(
         "--bilinear", action="store_true", default=False, help="Use bilinear upsampling"
     )
+    parser.add_argument(
+        "--parallel", action="store_true", default=False, help="Use data parallel"
+    )
 
     return parser.parse_args()
 
@@ -250,9 +269,7 @@ if __name__ == "__main__":
     logging.info(f"Using device {device}")
 
     # Change here to adapt to your data
-    # n_channels=3 for RGB images
-    # n_classes is the number of probabilities you want to get per pixel
-    net = UNet(n_channels=1, n_classes=2, bilinear=args.bilinear)
+    net = UNet(n_channels=1, n_classes=1, bilinear=args.bilinear)
     # net = unet_carvana()
 
     logging.info(
@@ -266,7 +283,10 @@ if __name__ == "__main__":
         net.load_state_dict(torch.load(args.load, map_location=device))
         logging.info(f"Model loaded from {args.load}")
 
+    if args.parallel:
+        torch.nn.parallel.DataParallel(net)
     net.to(device=device)
+
     try:
         train_net(
             net=net,
